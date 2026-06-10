@@ -1,0 +1,198 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id    String @id @default(cuid())
+  email String @unique
+  name  String
+}
+
+model Currency {
+  code         String  @id // ISO 4217, e.g. "PEN"
+  name         String
+  isNdfOnly    Boolean @default(false)
+  fixingSource String? // e.g. "BCRP/EMTA" for PEN
+
+  positions Position[] @relation("underlying")
+}
+
+enum CounterpartyType {
+  bank
+  broker
+  dealer
+}
+
+model Counterparty {
+  id   String           @id @default(cuid())
+  name String           @unique
+  type CounterpartyType
+
+  cashBalances  CashBalance[]
+  hedges        Hedge[]
+  marginRecords MarginRecord[]
+}
+
+enum PositionStatus {
+  active
+  repaid
+}
+
+model Position {
+  id             String         @id @default(cuid())
+  borrower       String
+  country        String
+  usdNotional    Decimal        @db.Decimal(18, 2)
+  marketValueUsd Decimal        @db.Decimal(18, 2)
+  settlementCcy  String
+  underlyingCcy  String
+  // 0–1: how much of the loan's credit performance is FX-linked
+  exposureFactor Decimal        @db.Decimal(5, 4)
+  startDate      DateTime       @db.Date
+  maturityDate   DateTime?      @db.Date
+  status         PositionStatus @default(active)
+  notes          String?
+
+  underlying Currency @relation("underlying", fields: [underlyingCcy], references: [code])
+}
+
+model CashBalance {
+  id             String   @id @default(cuid())
+  counterpartyId String
+  account        String
+  ccy            String
+  amount         Decimal  @db.Decimal(18, 2)
+  asOf           DateTime @db.Date
+  isMarginAccount Boolean @default(false)
+
+  counterparty Counterparty @relation(fields: [counterpartyId], references: [id])
+}
+
+enum HedgeType {
+  NDF
+  FORWARD
+  OPTION_CALL
+  OPTION_PUT
+  STRUCTURE
+}
+
+enum HedgeDirection {
+  buy // buy base ccy (e.g. buy PEN in PEN/USD)
+  sell // sell base ccy
+}
+
+enum HedgeStatus {
+  open
+  fixed
+  settled
+}
+
+model Hedge {
+  id             String         @id @default(cuid())
+  type           HedgeType
+  direction      HedgeDirection
+  pair           String // e.g. "PEN/USD" — quoted as USD per 1 unit of base ccy
+  notionalLocal  Decimal        @db.Decimal(18, 2)
+  contractRate   Decimal        @db.Decimal(18, 8)
+  premiumUsd     Decimal?       @db.Decimal(18, 2)
+  strike2        Decimal?       @db.Decimal(18, 8) // second leg for structures (collar/seagull)
+  tradeDate      DateTime       @db.Date
+  fixingDate     DateTime       @db.Date
+  settlementDate DateTime       @db.Date
+  counterpartyId String
+  status         HedgeStatus    @default(open)
+  settledPnlUsd  Decimal?       @db.Decimal(18, 2)
+  parentHedgeId  String? // set when this hedge is a roll of another
+  notes          String?
+
+  counterparty Counterparty @relation(fields: [counterpartyId], references: [id])
+  parentHedge  Hedge?       @relation("rolls", fields: [parentHedgeId], references: [id])
+  rolls        Hedge[]      @relation("rolls")
+}
+
+enum QuoteType {
+  spot
+  forward_outright
+  forward_points
+  vol_atm
+  vol_rr25
+  vol_bf25
+  interest_rate
+}
+
+model MarketQuote {
+  id        String    @id @default(cuid())
+  pair      String // "PEN/USD" for FX, "USD"/"PEN"/... for interest_rate
+  tenor     String // "SPOT" | "1M" | ... | ISO date "2026-06-17"
+  type      QuoteType
+  value     Decimal   @db.Decimal(18, 8)
+  source    String // api:twelvedata | api:tradermade | manual | cip | central_bank
+  quotedAt  DateTime
+  enteredBy String?
+
+  @@index([pair, type, tenor, quotedAt])
+}
+
+model ExposureSnapshot {
+  id               String   @id @default(cuid())
+  date             DateTime @db.Date
+  ccy              String
+  grossExposureUsd Decimal  @db.Decimal(18, 2)
+  cashUsd          Decimal  @db.Decimal(18, 2)
+  hedgeNotionalUsd Decimal  @db.Decimal(18, 2)
+  netExposureUsd   Decimal  @db.Decimal(18, 2)
+  hedgeRatio       Decimal  @db.Decimal(9, 6)
+  hedgeMtmUsd      Decimal  @db.Decimal(18, 2)
+
+  @@unique([date, ccy])
+}
+
+model MarginRecord {
+  id             String   @id @default(cuid())
+  counterpartyId String
+  date           DateTime @db.Date
+  postedUsd      Decimal  @db.Decimal(18, 2)
+  requiredUsd    Decimal  @db.Decimal(18, 2)
+  method         String // e.g. "notional_pct"
+
+  counterparty Counterparty @relation(fields: [counterpartyId], references: [id])
+}
+
+model HedgePolicy {
+  id             String  @id @default(cuid())
+  ccy            String  @unique
+  targetRatioMin Decimal @db.Decimal(5, 4)
+  targetRatioMax Decimal @db.Decimal(5, 4)
+}
+
+enum RecommendationStatus {
+  new
+  reviewed
+  dismissed
+}
+
+model Recommendation {
+  id         String               @id @default(cuid())
+  createdAt  DateTime             @default(now())
+  ccy        String?
+  title      String
+  body       String // markdown
+  inputsJson Json
+  status     RecommendationStatus @default(new)
+}
+
+model Alert {
+  id             String    @id @default(cuid())
+  type           String // fixing_soon | ratio_out_of_band | spot_move | margin_shortfall
+  severity       String // info | warning | critical
+  message        String
+  ccy            String?
+  hedgeId        String?
+  createdAt      DateTime  @default(now())
+  acknowledgedAt DateTime?
+}
