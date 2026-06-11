@@ -111,7 +111,11 @@ export default async function MarketsPage() {
                 <div className="text-xs text-zinc-400">{c.ccy} per USD</div>
               </div>
               <div>
-                <div className={`text-lg font-medium tabular-nums ${c.dayChg !== null && c.dayChg < 0 ? "text-red-600" : "text-emerald-600"}`}>
+                <div
+                  className={`text-lg font-medium tabular-nums ${
+                    c.dayChg === null ? "text-zinc-400" : c.dayChg < 0 ? "text-red-600" : "text-emerald-600"
+                  }`}
+                >
                   {c.dayChg === null ? "—" : `${c.dayChg >= 0 ? "+" : ""}${(c.dayChg * 100).toFixed(2)}%`}
                 </div>
                 <div className="text-xs text-zinc-400">day change</div>

@@ -37,7 +37,12 @@ export function ExposureBarChart({
 
 export function Sparkline({ points, positive }: { points: { date: string; value: number }[]; positive: boolean }) {
   if (points.length < 2) {
-    return <div className="h-8 w-24 text-[10px] text-zinc-400">no history</div>;
+    return (
+      <div className="flex h-8 w-24 flex-col justify-center" title="Trend appears once at least two daily quotes are stored">
+        <div className="border-t-2 border-dashed border-zinc-300 dark:border-zinc-700" />
+        <span className="mt-1 text-[9px] leading-none text-zinc-400">building history…</span>
+      </div>
+    );
   }
   return (
     <div className="h-8 w-24">
